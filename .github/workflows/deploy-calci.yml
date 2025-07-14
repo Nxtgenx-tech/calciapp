@@ -14,23 +14,20 @@ jobs:
     outputs:
       image: ${{ steps.build.outputs.image }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
+      - uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region:            ${{ secrets.AWS_REGION }}
 
-      - name: Login to ECR
-        uses: aws-actions/amazon-ecr-login@v1
+      - uses: aws-actions/amazon-ecr-login@v1
 
-      - name: Build, tag & push Docker image
+      - name: 🏗️ Build, tag & push Docker image
         id: build
+        working-directory: ./nodejs_demo        # <— adjust or remove if using Option B
         run: |
-          # strip any stray whitespace/newlines
           REPO="$(echo -n '${{ secrets.ECR_REPOSITORY }}')"
           ACCOUNT='${{ secrets.AWS_ACCOUNT_ID }}'
           REGION='${{ secrets.AWS_REGION }}'
@@ -43,25 +40,21 @@ jobs:
           docker build -t "$IMAGE" .
           docker push "$IMAGE"
 
-          # export for downstream jobs
           echo "image=$IMAGE" >> $GITHUB_OUTPUT
 
   deploy:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
+      - uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region:            ${{ secrets.AWS_REGION }}
 
-      - name: Update kubeconfig
-        uses: aws-actions/eks-update-kubeconfig@v2
+      - uses: aws-actions/eks-update-kubeconfig@v2
         with:
           region:       ${{ secrets.AWS_REGION }}
           cluster-name: ${{ secrets.EKS_CLUSTER_NAME }}
