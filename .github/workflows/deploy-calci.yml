@@ -1,0 +1,78 @@
+name: Build & Deploy Calci
+
+on:
+  push:
+    branches: [ main ]
+
+env:
+  K8S_NAMESPACE: calci
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.build.outputs.image }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+
+      - name: Log in to ECR
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build, tag & push Docker image
+        id: build
+        run: |
+          ECR_URI="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}"
+          TAG="${GITHUB_SHA::8}"
+          IMAGE="$ECR_URI:$TAG"
+
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+
+          echo "::set-output name=image::$IMAGE"
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+
+      - name: Update kubeconfig
+        uses: aws-actions/eks-update-kubeconfig@v2
+        with:
+          cluster-name: ${{ secrets.EKS_CLUSTER_NAME }}
+          region:       ${{ secrets.AWS_REGION }}
+
+      - name: Create namespace
+        run: kubectl apply -f namespace.yaml
+
+      - name: Deploy application
+        env:
+          IMAGE: ${{ needs.build.outputs.image }}
+          NAMESPACE: ${{ env.K8S_NAMESPACE }}
+        run: |
+          # Inject the image into deployment manifest
+          sed -i "s|image: .*|image: $IMAGE|" deployment.yaml
+
+          kubectl apply -f deployment.yaml
+          kubectl apply -f service.yaml
+
+          # Wait for rollout
+          kubectl rollout status deployment/calci-deployment \
+            --namespace $NAMESPACE \
+            --timeout 120s
