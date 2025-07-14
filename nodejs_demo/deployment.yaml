@@ -15,7 +15,8 @@ spec:
     spec:
       containers:
         - name: calci
-          image: 419525362465.dkr.ecr.us-east-1.amazonaws.com/calci:latest
+          # This will be patched by the GH Action:
+          image: placeholder
           ports:
             - containerPort: 3000
           readinessProbe:
@@ -30,4 +31,3 @@ spec:
               port: 3000
             initialDelaySeconds: 15
             periodSeconds: 20
-
