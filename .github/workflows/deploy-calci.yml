@@ -2,7 +2,8 @@ name: Build-Push-Deploy
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
 
 jobs:
   build-and-deploy:
@@ -10,12 +11,13 @@ jobs:
 
     defaults:
       run:
-        working-directory: nodejs_demo   # ← here!
+        working-directory: nodejs_demo
 
     env:
-      AWS_REGION:      ${{ secrets.AWS_REGION }}
-      ECR_REPOSITORY:  ${{ secrets.ECR_REPOSITORY }}
-      CLUSTER_NAME:    ${{ secrets.EKS_CLUSTER_NAME }}
+      AWS_REGION:     ${{ secrets.AWS_REGION }}
+      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+      ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+      CLUSTER_NAME:   ${{ secrets.EKS_CLUSTER_NAME }}
 
     steps:
       - name: Checkout code
@@ -28,17 +30,24 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region:            ${{ env.AWS_REGION }}
 
-      - name: Login to ECR
+      - name: Log in to ECR
         run: |
           aws ecr get-login-password --region $AWS_REGION \
-            | docker login --username AWS --password-stdin $ECR_REPOSITORY
+            | docker login --username AWS --password-stdin \
+              $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+
       - name: Build & Push Docker image
         run: |
-          docker build -t $ECR_REPOSITORY:latest .
-          docker push $ECR_REPOSITORY:latest
+          IMAGE_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:latest"
+          docker build -t "$IMAGE_URI" .
+          docker push "$IMAGE_URI"
+
       - name: Update kubeconfig
         run: |
-          aws eks update-kubeconfig --region $AWS_REGION --name $CLUSTER_NAME
+          aws eks update-kubeconfig \
+            --region $AWS_REGION \
+            --name   $CLUSTER_NAME
+
       - name: Deploy to EKS
         run: |
           kubectl apply -f k8s/
