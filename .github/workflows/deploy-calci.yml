@@ -1,34 +1,87 @@
-deploy:
-  needs: build
-  runs-on: ubuntu-latest
-  steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+# .github/workflows/deploy-calci.yml
 
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v2
-      with:
-        aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region:            ${{ secrets.AWS_REGION }}
+name: Build & Deploy Calci
 
-    - name: Update kubeconfig
-      uses: aws-actions/eks-update-kubeconfig@v1
-      with:
-        region:       ${{ secrets.AWS_REGION }}
-        cluster-name: ${{ secrets.EKS_CLUSTER_NAME }}
+on:
+  push:
+    branches:
+      - main
 
-    - name: Create namespace
-      run: kubectl apply -f namespace.yaml
+env:
+  K8S_NAMESPACE: calci
 
-    - name: Deploy application
-      env:
-        IMAGE: ${{ needs.build.outputs.image }}
-        NAMESPACE: ${{ env.K8S_NAMESPACE }}
-      run: |
-        sed -i "s|image: .*|image: $IMAGE|" deployment.yaml
-        kubectl apply -f deployment.yaml
-        kubectl apply -f service.yaml
-        kubectl rollout status deployment/calci-deployment \
-          --namespace "$NAMESPACE" \
-          --timeout 120s
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.build.outputs.image }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+
+      - name: Log in to ECR
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build, tag & push Docker image
+        id: build
+        working-directory: ./nodejs_demo
+        run: |
+          REPO="$(echo -n '${{ secrets.ECR_REPOSITORY }}')"
+          ACCOUNT="${{ secrets.AWS_ACCOUNT_ID }}"
+          REGION="${{ secrets.AWS_REGION }}"
+
+          ECR_URI="$ACCOUNT.dkr.ecr.$REGION.amazonaws.com/$REPO"
+          SHORT_SHA="${GITHUB_SHA::8}"
+          IMAGE="$ECR_URI:$SHORT_SHA"
+
+          echo "Building and pushing image: $IMAGE"
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+
+          echo "image=$IMAGE" >> $GITHUB_OUTPUT
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+
+      - name: Update kubeconfig
+        uses: aws-actions/eks-update-kubeconfig@v1
+        with:
+          region:       ${{ secrets.AWS_REGION }}
+          cluster-name: ${{ secrets.EKS_CLUSTER_NAME }}
+
+      - name: Create namespace
+        run: kubectl apply -f namespace.yaml
+
+      - name: Deploy application
+        env:
+          IMAGE: ${{ needs.build.outputs.image }}
+          NAMESPACE: ${{ env.K8S_NAMESPACE }}
+        run: |
+          # Inject the correct image reference
+          sed -i "s|image: .*|image: $IMAGE|" deployment.yaml
+
+          kubectl apply -f deployment.yaml
+          kubectl apply -f service.yaml
+
+          # Wait for the rollout to finish
+          kubectl rollout status deployment/calci-deployment \
+            --namespace "$NAMESPACE" \
+            --timeout 120s
