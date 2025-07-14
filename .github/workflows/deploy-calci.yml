@@ -60,7 +60,7 @@ jobs:
           aws-region:            ${{ secrets.AWS_REGION }}
 
       - name: Update kubeconfig
-        uses: aws-actions/eks-update-kubeconfig@v2
+        uses: aws-actions/eks-update-kubeconfig@v1
         with:
           region:       ${{ secrets.AWS_REGION }}
           cluster-name: ${{ secrets.EKS_CLUSTER_NAME }}
