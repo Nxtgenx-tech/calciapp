@@ -62,17 +62,17 @@ jobs:
           aws-region:            ${{ secrets.AWS_REGION }}
 
       - name: Update kubeconfig
-        uses: aws-actions/eks-update-kubeconfig@v1
-        with:
-          region:       ${{ secrets.AWS_REGION }}
-          cluster-name: ${{ secrets.EKS_CLUSTER_NAME }}
+        run: |
+          aws eks update-kubeconfig \
+            --region ${{ secrets.AWS_REGION }} \
+            --name   ${{ secrets.EKS_CLUSTER_NAME }}
 
       - name: Create namespace
         run: kubectl apply -f namespace.yaml
 
       - name: Deploy application
         env:
-          IMAGE: ${{ needs.build.outputs.image }}
+          IMAGE:     ${{ needs.build.outputs.image }}
           NAMESPACE: ${{ env.K8S_NAMESPACE }}
         run: |
           sed -i "s|image: .*|image: $IMAGE|" deployment.yaml
